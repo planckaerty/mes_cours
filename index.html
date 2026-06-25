@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Espace Mathématiques</title>
+    <style>
+        :root {
+            --bg-color: #0f172a;
+            --card-bg: #1e293b;
+            --accent-color: #3b82f6;
+            --text-main: #f8fafc;
+            --text-muted: #94a3b8;
+            --border-color: #334155;
+        }
+
+        body {
+            font-family: Arial, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            margin: 0;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+        }
+
+        h1 {
+            font-size: 2rem;
+            margin-bottom: 10px;
+        }
+
+        /* Menu de navigation entre les classes */
+        .nav-classes {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 25px;
+            border-bottom: 2px solid var(--border-color);
+            padding-bottom: 15px;
+        }
+
+        .nav-btn {
+            background-color: var(--card-bg);
+            color: var(--text-muted);
+            border: 1px solid var(--border-color);
+            padding: 10px 20px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: bold;
+            font-size: 1rem;
+            transition: all 0.2s;
+        }
+
+        .nav-btn.active, .nav-btn:hover {
+            background-color: var(--accent-color);
+            color: var(--text-main);
+            border-color: var(--accent-color);
+        }
+
+        .chapter-section {
+            background-color: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            margin-bottom: 16px;
+            overflow: hidden;
+        }
+
+        .chapter-title {
+            padding: 16px;
+            font-size: 1.2rem;
+            font-weight: bold;
+            background-color: #1a2333;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .chapter-content {
+            padding: 8px 16px;
+        }
+
+        .file-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 12px 0;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .file-row:last-child {
+            border-bottom: none;
+        }
+
+        .file-info {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .file-name {
+            font-weight: 500;
+            color: var(--text-main);
+            text-decoration: none;
+        }
+
+        .file-name:hover {
+            color: var(--accent-color);
+        }
+
+        .badge {
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            font-weight: bold;
+            text-transform: uppercase;
+        }
+
+        .badge-cours { background-color: #1e3a8a; color: #93c5fd; }
+        .badge-exercices { background-color: #064e3b; color: #6ee7b7; }
+        .badge-corriges { background-color: #701a75; color: #f5d0fe; }
+        .badge-infographie { background-color: #7c2d12; color: #ffedd5; }
+        .badge-default { background-color: #334155; color: #cbd5e1; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1 id="page-title">Mes Cours de Mathématiques</h1>
+    
+    <div class="nav-classes" id="nav-container"></div>
+    
+    <div id="chapters-container"></div>
+</div>
+
+<script>
+    // ⚠️ METTEZ LE LIEN DU CLASSEMENT ENTIER ICI (MAIS AVEC VOTRE ID DE BASE)
+    // Exemple pour cibler dynamiquement l'onglet via JS :
+const baseSheetsUrl = 'https://docs.google.com/spreadsheets/d/1jFjRedWMuKveuRMgDT8WqH84CMPJ83jmjYJNmLVaBlY/pub?output=csv&gid=';
+
+    // Liste des onglets (classes) que vous avez créés dans votre Sheets
+    // Dès que vous créez un nouvel onglet, ajoutez simplement son nom et son GID ici !
+const configClasses = [
+        { name: '6ème', gid: '981869216' },
+        { name: '5ème', gid: '229442189' },
+        { name: '4ème', gid: '484894360' },
+        { name: '3ème', gid: '666623476' }
+    ];
+
+    function getBadgeClass(type) {
+        const t = type.toLowerCase().trim();
+        if (t.includes('cour')) return 'badge-cours';
+        if (t.includes('ex')) return 'badge-exercices';
+        if (t.includes('corrig') || t.includes('corr')) return 'badge-corriges';
+        if (t.includes('info')) return 'badge-infographie';
+        return 'badge-default';
+    }
+
+    function cleanDriveLink(url) {
+        if (url.includes('drive.google.com') && url.includes('/file/d/')) {
+            return url.replace(/\/view.*/, '') + '/view?usp=drivesdk';
+        }
+        return url;
+    }
+
+    // Génère les onglets de navigation en haut
+    function initNavigation() {
+        const nav = document.getElementById('nav-container');
+        nav.innerHTML = '';
+        configClasses.forEach((classe, index) => {
+            const btn = document.createElement('button');
+            btn.className = `nav-btn ${index === 0 ? 'active' : ''}`;
+            btn.innerText = classe.name;
+            btn.onclick = () => {
+                document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                loadClassData(classe.gid);
+            };
+            nav.appendChild(btn);
+        });
+        // Charge la première classe par défaut
+        loadClassData(configClasses[0].gid);
+    }
+
+    async function loadClassData(gid) {
+        const container = document.getElementById('chapters-container');
+        container.innerHTML = '<p style="color: var(--text-muted)">Chargement des documents...</p>';
+        
+        try {
+            const response = await fetch(baseSheetsUrl + gid);
+            const data = await response.text();
+            
+            const lines = data.split('\n').map(line => line.split(','));
+            const headers = lines[0].map(h => h.trim().toLowerCase());
+            
+            const idxDossier = headers.indexOf('dossier');
+            const idxType = headers.indexOf('type');
+            const idxTitre = headers.indexOf('titre');
+            const idxLiens = headers.indexOf('liens');
+            const idxCode = headers.indexOf('code');
+
+            const chapters = {};
+
+            for (let i = 1; i < lines.length; i++) {
+                if (!lines[i][idxTitre]) continue;
+                
+                const code = lines[i][idxCode]?.trim();
+                if (code === '0' || !code) continue; 
+
+                const dossier = lines[i][idxDossier]?.trim() || "Général";
+                const type = lines[i][idxType]?.trim() || "Document";
+                const titre = lines[i][idxTitre]?.trim();
+                const lien = cleanDriveLink(lines[i][idxLiens]?.trim() || "#");
+
+                if (!chapters[dossier]) chapters[dossier] = [];
+                
+                const item = { type, titre, lien, priority: code === '2' };
+                if (item.priority) {
+                    chapters[dossier].unshift(item);
+                } else {
+                    chapters[dossier].push(item);
+                }
+            }
+
+            container.innerHTML = '';
+
+            if (Object.keys(chapters).length === 0) {
+                container.innerHTML = '<p style="color: var(--text-muted)">Aucun document en ligne pour cette classe.</p>';
+                return;
+            }
+
+            for (const [chapterName, items] of Object.entries(chapters)) {
+                const section = document.createElement('div');
+                section.className = 'chapter-section';
+
+                const titleDiv = document.createElement('div');
+                titleDiv.className = 'chapter-title';
+                titleDiv.innerText = chapterName;
+                section.appendChild(titleDiv);
+
+                const contentDiv = document.createElement('div');
+                contentDiv.className = 'chapter-content';
+
+                items.forEach(item => {
+                    const row = document.createElement('div');
+                    row.className = 'file-row';
+                    row.innerHTML = `
+                        <div class="file-info">
+                            <span class="badge ${getBadgeClass(item.type)}">${item.type}</span>
+                            <a href="${item.lien}" target="_blank" class="file-name">${item.titre}</a>
+                        </div>
+                    `;
+                    contentDiv.appendChild(row);
+                });
+
+                section.appendChild(contentDiv);
+                container.appendChild(section);
+            }
+
+        } catch (error) {
+            container.innerHTML = '<p style="color: #ef4444">Erreur lors de la récupération des fichiers.</p>';
+            console.error(error);
+        }
+    }
+
+    window.onload = initNavigation;
+</script>
+</body>
+</html>
