@@ -32,14 +32,13 @@
             margin-bottom: 10px;
         }
 
-        /* Menu de navigation entre les classes */
         .nav-classes {
             display: flex;
             gap: 10px;
             margin-bottom: 25px;
             border-bottom: 2px solid var(--border-color);
             padding-bottom: 15px;
-            flex-wrap: wrap; /* S'adapte sur téléphone */
+            flex-wrap: wrap;
         }
 
         .nav-btn {
@@ -124,22 +123,200 @@
         .badge-corriges { background-color: #701a75; color: #f5d0fe; }
         .badge-infographie { background-color: #7c2d12; color: #ffedd5; }
         .badge-default { background-color: #334155; color: #cbd5e1; }
+        
+        .error-msg {
+            background-color: #7f1d1d;
+            border: 1px solid #f87171;
+            padding: 15px;
+            border-radius: 6px;
+            color: #fef2f2;
+        }
     </style>
 </head>
 <body>
 
 <div class="container">
     <h1 id="page-title">Mes Cours de Mathématiques</h1>
-    
     <div class="nav-classes" id="nav-container"></div>
-    
     <div id="chapters-container"></div>
 </div>
 
 <script>
-    // Lien de partage classique de votre Google Sheets
     const mainSheetsUrl = 'https://docs.google.com/spreadsheets/d/1jFjRedWMuKveuRMgDT8WqH84CMPJ83jmjYJNmLVaBlY/edit?usp=sharing';
-
-    // Extrait l'ID unique du classeur
     const sheetId = mainSheetsUrl.match(/\/d\/([^/]+)/)[1];
-    const
+    const baseSheetsUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv&gid=`;
+
+    const configClasses = [
+        { name: '6ème', gid: '981869216' },
+        { name: '5ème', gid: '229442189' },
+        { name: '4ème', gid: '484894360' },
+        { name: '3ème', gid: '666623476' }
+    ];
+
+    function getBadgeClass(type) {
+        const t = type.toLowerCase().trim();
+        if (t.includes('cour')) return 'badge-cours';
+        if (t.includes('ex')) return 'badge-exercices';
+        if (t.includes('corrig') || t.includes('corr')) return 'badge-corriges';
+        if (t.includes('info')) return 'badge-infographie';
+        return 'badge-default';
+    }
+
+    function cleanDriveLink(url) {
+        if (url.includes('drive.google.com') && url.includes('/file/d/')) {
+            return url.replace(/\/view.*/, '') + '/view?usp=drivesdk';
+        }
+        return url;
+    }
+
+    // Analyseur CSV robuste (gère les guillemets et sauts de ligne internes)
+    function parseCSV(text) {
+        let lines = [];
+        let row = [""];
+        let inQuotes = false;
+
+        for (let i = 0; i < text.length; i++) {
+            let c = text[i];
+            let next = text[i+1];
+
+            if (c === '"') {
+                if (inQuotes && next === '"') { row[row.length - 1] += '"'; i++; }
+                else { inQuotes = !inQuotes; }
+            } else if (c === ',' && !inQuotes) {
+                row.push('');
+            } else if ((c === '\r' || c === '\n') && !inQuotes) {
+                if (c === '\r' && next === '\n') { i++; }
+                lines.push(row);
+                row = [''];
+            } else {
+                row[row.length - 1] += c;
+            }
+        }
+        if (row.length > 1 || row[0] !== '') lines.push(row);
+        return lines;
+    }
+
+    function initNavigation() {
+        const nav = document.getElementById('nav-container');
+        nav.innerHTML = '';
+        configClasses.forEach((classe, index) => {
+            const btn = document.createElement('button');
+            btn.className = `nav-btn ${index === 0 ? 'active' : ''}`;
+            btn.innerText = classe.name;
+            btn.onclick = () => {
+                document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                loadClassData(classe.gid);
+            };
+            nav.appendChild(btn);
+        });
+        loadClassData(configClasses[0].gid);
+    }
+
+    async function loadClassData(gid) {
+        const container = document.getElementById('chapters-container');
+        container.innerHTML = '<p style="color: var(--text-muted)">Chargement des documents...</p>';
+        
+        try {
+            const response = await fetch(baseSheetsUrl + gid);
+            if (!response.ok) throw new Error("Impossible de joindre le fichier Google Sheets.");
+            const textData = await response.text();
+            
+            const rows = parseCSV(textData).filter(r => r.length > 0 && r.some(cell => cell.trim() !== ''));
+
+            if (rows.length === 0) {
+                container.innerHTML = '<p style="color: var(--text-muted)">La feuille sélectionnée est vide.</p>';
+                return;
+            }
+
+            // Normalisation stricte des en-têtes
+            const headers = rows[0].map(h => 
+                h.trim().toLowerCase()
+                 .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+            );
+            
+            const idxDossier = headers.indexOf('dossier');
+            const idxType = headers.indexOf('type');
+            const idxTitre = headers.indexOf('titre');
+            const idxLiens = headers.indexOf('liens');
+            const idxCode = headers.indexOf('code');
+
+            if (idxTitre === -1 || idxLiens === -1) {
+                container.innerHTML = `
+                    <div class="error-msg">
+                        <strong>Structure du tableau incorrecte :</strong><br>
+                        Le script n'a pas trouvé les colonnes obligatoires <code>titre</code> ou <code>liens</code>.<br>
+                        <small>Colonnes détectées : ${rows[0].join(', ')}</small>
+                    </div>`;
+                return;
+            }
+
+            const chapters = {};
+
+            for (let i = 1; i < rows.length; i++) {
+                const line = rows[i];
+                if (!line[idxTitre] || line[idxTitre].trim() === '') continue;
+
+                const code = idxCode !== -1 ? line[idxCode].trim() : '1';
+                if (code === '0') continue; 
+
+                const dossier = idxDossier !== -1 ? line[idxDossier].trim() || "Général" : "Général";
+                const type = idxType !== -1 ? line[idxType].trim() || "Document" : "Document";
+                const titre = line[idxTitre].trim();
+                const lien = cleanDriveLink(line[idxLiens].trim() || "#");
+
+                if (!chapters[dossier]) chapters[dossier] = [];
+                
+                const item = { type, titre, lien, priority: code === '2' };
+                if (item.priority) {
+                    chapters[dossier].unshift(item);
+                } else {
+                    chapters[dossier].push(item);
+                }
+            }
+
+            container.innerHTML = '';
+
+            if (Object.keys(chapters).length === 0) {
+                container.innerHTML = '<p style="color: var(--text-muted)">Aucun document visible (vérifiez les codes d\'activation 1 ou 2).</p>';
+                return;
+            }
+
+            for (const [chapterName, items] of Object.entries(chapters)) {
+                const section = document.createElement('div');
+                section.className = 'chapter-section';
+
+                const titleDiv = document.createElement('div');
+                titleDiv.className = 'chapter-title';
+                titleDiv.innerText = chapterName;
+                section.appendChild(titleDiv);
+
+                const contentDiv = document.createElement('div');
+                contentDiv.className = 'chapter-content';
+
+                items.forEach(item => {
+                    const row = document.createElement('div');
+                    row.className = 'file-row';
+                    row.innerHTML = `
+                        <div class="file-info">
+                            <span class="badge ${getBadgeClass(item.type)}">${item.type}</span>
+                            <a href="${item.lien}" target="_blank" class="file-name">${item.titre}</a>
+                        </div>
+                    `;
+                    contentDiv.appendChild(row);
+                });
+
+                section.appendChild(contentDiv);
+                container.appendChild(section);
+            }
+
+        } catch (error) {
+            container.innerHTML = '<p style="color: #ef4444">Erreur technique lors du chargement. Vérifiez la connexion ou l\'adresse du classeur.</p>';
+            console.error(error);
+        }
+    }
+
+    window.onload = initNavigation;
+</script>
+</body>
+</html>
